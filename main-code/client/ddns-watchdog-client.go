@@ -268,11 +268,11 @@ func (ws *WindowsService) Execute(args []string, r <-chan svc.ChangeRequest, cha
 	const cmdsAccepted = svc.AcceptPauseAndContinue | svc.AcceptShutdown | svc.AcceptStop
 	changes <- svc.Status{State: svc.StartPending}
 	runTick := time.NewTicker(time.Duration(client.Conf.CheckCycleMinutes) * time.Minute)
-	pauseTick := time.NewTicker(17280 * time.Hour)
+	pauseTick := time.NewTicker(1728000 * time.Hour)
 	tick := runTick
 	waitCheckDone := make(chan bool, 1)
 	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
-	elog.Info(1, fmt.Sprintf("服务 %s 启动成功！", client.WindowsServiceName))
+	elog.Info(2, fmt.Sprintf("服务 %s 启动成功！", client.WindowsServiceName))
 	go asyncCheck(waitCheckDone)
 	<-waitCheckDone
 	elog.Info(3, "动态域名解析更新成功！")
@@ -290,18 +290,21 @@ loop:
 				changes <- c.CurrentStatus
 			case svc.Stop, svc.Shutdown:
 				changes <- svc.Status{State: svc.StopPending}
+				elog.Info(6, fmt.Sprintf("服务 %s 正在停止……", client.WindowsServiceName))
 				break loop
 			case svc.Pause:
 				changes <- svc.Status{State: svc.Paused, Accepts: cmdsAccepted}
 				tick = pauseTick
+				elog.Info(4, fmt.Sprintf("服务 %s 暂停成功！", client.WindowsServiceName))
 			case svc.Continue:
 				changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 				tick = runTick
+				elog.Info(5, fmt.Sprintf("服务 %s 恢复成功！", client.WindowsServiceName))
 				go asyncCheck(waitCheckDone)
 				<-waitCheckDone
 				elog.Info(3, "动态域名解析更新成功！")
 			default:
-				elog.Error(2, fmt.Sprintf("无法识别的控制命令 #%d", c))
+				elog.Error(9, fmt.Sprintf("无法识别的控制命令 #%d", c))
 			}
 		case <-tick.C:
 			elog.Info(3, "动态域名解析更新成功！")
@@ -328,13 +331,13 @@ func runService(name string, isDebug bool) {
 	elog.Info(1, fmt.Sprintf("服务 %s 正在启动中……", name))
 	run := svc.Run
 	if isDebug {
-		elog.Warning(1, fmt.Sprintf("服务 %s 将以调试模式运行！", name))
+		elog.Warning(10, fmt.Sprintf("服务 %s 将以调试模式运行！", name))
 		run = debug.Run
 	}
 	err = run(name, &WindowsService{})
 	if err != nil {
-		elog.Error(1, fmt.Sprintf("服务 %s 启动失败: %v", name, err))
+		elog.Error(8, fmt.Sprintf("服务 %s 启动失败: %v", name, err))
 		return
 	}
-	elog.Info(1, fmt.Sprintf("服务 %s 已停止！", name))
+	elog.Info(7, fmt.Sprintf("服务 %s 已停止！", name))
 }

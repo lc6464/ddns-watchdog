@@ -127,6 +127,7 @@ func Install() (err error) { // 安装服务
 			StartType:        windows.SERVICE_AUTO_START,
 			ErrorControl:     windows.SERVICE_ERROR_NORMAL,
 			ServiceStartName: "NT AUTHORITY\\NetworkService",
+			DelayedAutoStart: true,
 		}
 		s, err = m.CreateService(WindowsServiceName, exepath, config)
 		if err != nil {
