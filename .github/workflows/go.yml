@@ -2,36 +2,36 @@ name: Go
 
 on:
   push:
-    branches: [ master ]
-    tags: [ v* ]
+    branches: [ "master" ]
+    tags: [ "v*" ]
   pull_request:
-    branches: [ master ]
+    branches: [ "master" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: 
+#    if:
     steps:
-    - name: Load repo
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
+      - name: Load repo
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.18.1
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
 
-    - name: Build client
-      run: make -f Makefile.client
+      - name: Test
+        run: go test ./...
 
-    - name: Build server
-      run: make -f Makefile.server
+      - name: Build
+        run: make
 
-    - name: Upload release assets
-      uses: alexellis/upload-assets@0.3.0
-      if: startsWith(github.ref, 'refs/tags/v')
-      env:
-        GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      with:
-        asset_paths: '["./build/*"]'
+      - name: Upload release binaries
+        uses: alexellis/upload-assets@0.4.1
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          asset_paths: '["./build/*"]'

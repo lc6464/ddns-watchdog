@@ -1,17 +1,23 @@
 module ddns-watchdog
 
-go 1.18
+go 1.25
 
 require (
-	github.com/aliyun/alibaba-cloud-sdk-go v1.61.1573
-	github.com/bitly/go-simplejson v0.5.0
+	github.com/aliyun/alibaba-cloud-sdk-go v1.63.107
+	github.com/bitly/go-simplejson v0.5.1
+	github.com/huaweicloud/huaweicloud-sdk-go-v3 v0.1.176
+	github.com/spf13/pflag v1.0.10
+	golang.org/x/mod v0.30.0
 )
 
 require (
-	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
+	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/json-iterator/go v1.1.13-0.20220915233716-71ac16282d12 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	gopkg.in/ini.v1 v1.66.4 // indirect
+	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
+	github.com/tjfoc/gmsm v1.4.1 // indirect
+	go.mongodb.org/mongo-driver v1.17.6 // indirect
+	gopkg.in/ini.v1 v1.67.0 // indirect
 )

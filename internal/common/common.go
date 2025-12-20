@@ -1,50 +1,99 @@
 package common
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
+
+	"golang.org/x/mod/semver"
 )
 
 const (
-	LocalVersion      = "1.4.5"
+	Version           = "1.6.2"
 	DefaultAPIUrl     = "https://yzyweb.cn/ddns-watchdog"
 	DefaultIPv6APIUrl = "https://yzyweb.cn/ddns-watchdog6"
-	ProjectUrl        = "https://github.com/yzy613/ddns-watchdog"
+	projectUrl        = "https://github.com/y1jiong/ddns-watchdog"
 )
 
-type PublicInfo struct {
+var (
+	GitCommit = ""
+	BuildTime = ""
+)
+
+var DefaultHttpClient = newHttpClient()
+
+func newHttpClient() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+	t.DisableKeepAlives = true
+	return &http.Client{
+		Transport: t,
+		Timeout:   30 * time.Second,
+	}
+}
+
+// 内容应全小写
+const (
+	DNSPod      = "dnspod"
+	AliDNS      = "alidns"
+	Cloudflare  = "cloudflare"
+	HuaweiCloud = "huaweicloud"
+)
+
+type Enable struct {
+	IPv4 bool `json:"ipv4"`
+	IPv6 bool `json:"ipv6"`
+}
+
+type Subdomain struct {
+	A    string `json:"a"`
+	AAAA string `json:"aaaa"`
+}
+
+type GeneralClient interface {
+	Run(Enable, string, string) ([]string, []error)
+}
+
+type GetIPResp struct {
 	IP      string `json:"ip"`
 	Version string `json:"latest_version"`
 }
 
-func FormatDirectoryPath(srcPath string) (dstPath string) {
-	if length := len(srcPath); srcPath[length-1:] == "/" {
-		dstPath = srcPath[0 : length-1]
-	} else {
-		dstPath = srcPath
-	}
-	return
+type CenterReq struct {
+	Token  string `json:"token"`
+	Enable Enable `json:"enable"`
+	IP     IPs    `json:"ip"`
+}
+
+type IPs struct {
+	IPv4 string `json:"ipv4"`
+	IPv6 string `json:"ipv6"`
+}
+
+type GeneralResp struct {
+	Message string `json:"message"`
 }
 
 func IsWindows() bool {
-	if runtime.GOOS == "windows" {
-		return true
-	} else {
-		return false
-	}
+	return runtime.GOOS == "windows"
 }
 
 func IsDirExistAndCreate(dirPath string) (err error) {
 	_, err = os.Stat(dirPath)
-	if err != nil || os.IsNotExist(err) {
-		err = os.MkdirAll(dirPath, 0750)
-		if err != nil {
-			return err
+	if err != nil {
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(dirPath, 0o755)
 		}
+		return
 	}
 	return
 }
@@ -55,87 +104,69 @@ func LoadAndUnmarshal(filePath string, dst any) (err error) {
 	if err != nil {
 		return
 	}
+
 	jsonContent, err := os.ReadFile(filePath)
 	if err != nil {
 		return
 	}
-	err = json.Unmarshal(jsonContent, &dst)
-	if err != nil {
-		return
-	}
-	return
+
+	return json.Unmarshal(jsonContent, &dst)
 }
 
 func MarshalAndSave(content any, filePath string) (err error) {
-	err = IsDirExistAndCreate(filepath.Dir(filePath))
-	if err != nil {
+	if err = IsDirExistAndCreate(filepath.Dir(filePath)); err != nil {
 		return
 	}
+
 	jsonContent, err := json.MarshalIndent(content, "", "\t")
 	if err != nil {
 		return
 	}
-	err = os.WriteFile(filePath, jsonContent, 0600)
-	if err != nil {
-		return
-	}
-	return nil
+
+	return os.WriteFile(filePath, jsonContent, 0o644)
 }
 
-func CompareVersionString(remoteVersion, localVersion string) bool {
-	rv := strings.Split(remoteVersion, ".")
-	lv := strings.Split(localVersion, ".")
-	if len(rv) <= len(lv) {
-		for key, value := range rv {
-			switch {
-			case value > lv[key]:
-				return true
-			case value < lv[key]:
-				return false
+func ExpandIPv6Zero(ip string) string {
+	p := net.ParseIP(ip)
+	if p == nil || p.To4() != nil || len(p) != net.IPv6len {
+		return ip
+	}
+
+	const maxLen = len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff")
+	b := make([]byte, 0, maxLen)
+
+	const hexDigit = "0123456789abcdef"
+	appendHex := func(dst []byte, i uint16) []byte {
+		if i == 0 {
+			return append(dst, '0')
+		}
+		for j := 3; j >= 0; j-- {
+			v := i >> (j * 4)
+			if v > 0 {
+				dst = append(dst, hexDigit[v&0xf])
 			}
 		}
+		return dst
 	}
-	return false
-}
 
-func DecodeIPv6(srcIP string) (dstIP string) {
-	if strings.Contains(srcIP, "::") {
-		splitArr := strings.Split(srcIP, "::")
-		decode := ""
-		switch {
-		case srcIP == "::":
-			dstIP = "0:0:0:0:0:0:0:0"
-		case splitArr[0] == "" && splitArr[1] != "":
-			for i := 0; i < 8-len(strings.Split(splitArr[1], ":")); i++ {
-				decode = "0:" + decode
-			}
-			dstIP = decode + splitArr[1]
-		case splitArr[0] != "" && splitArr[1] == "":
-			for i := 0; i < 8-len(strings.Split(splitArr[0], ":")); i++ {
-				decode = decode + ":0"
-			}
-			dstIP = splitArr[0] + decode
-		default:
-			for i := 0; i < 8-len(strings.Split(splitArr[0], ":"))-len(strings.Split(splitArr[1], ":")); i++ {
-				decode = decode + ":0"
-			}
-			decode = decode + ":"
-			dstIP = splitArr[0] + decode + splitArr[1]
+	for i := 0; i < net.IPv6len; i += 2 {
+		if i > 0 {
+			b = append(b, ':')
 		}
-	} else {
-		dstIP = srcIP
+		b = appendHex(b, (uint16(p[i])<<8)|uint16(p[i+1]))
 	}
-	return
+	return string(b)
 }
 
-func VersionTips(LatestVersion string) {
-	fmt.Println("当前版本 ", LocalVersion)
-	fmt.Println("最新版本 ", LatestVersion)
-	fmt.Println("项目地址 ", ProjectUrl)
+func VersionTips(latestVersion string) {
+	fmt.Println("当前版本", Version)
+	fmt.Println("最新版本", latestVersion)
+	fmt.Println("Git Commit:", GitCommit)
+	fmt.Println("Build Time:", BuildTime)
 	switch {
-	case strings.Contains(LatestVersion, "N/A"):
-		fmt.Println("\n" + LatestVersion + "\n需要手动检查更新，请前往 项目地址 查看")
-	case CompareVersionString(LatestVersion, LocalVersion):
-		fmt.Println("\n发现新版本，请前往 项目地址 下载")
+	case strings.Contains(latestVersion, "N/A"):
+		fmt.Println("\n"+latestVersion+"\n需要手动检查更新，请前往", projectUrl, "查看")
+	case semver.Compare("v"+Version, "v"+latestVersion) < 0:
+		fmt.Println("\n发现新版本，请前往", projectUrl, "下载")
 	}
 }

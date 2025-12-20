@@ -3,124 +3,123 @@ package client
 import (
 	"ddns-watchdog/internal/common"
 	"errors"
+
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/alidns"
 )
 
-const AliDNSConfFileName = "alidns.json"
+const (
+	AliDNSConfFilename = "alidns.json"
+	aliDNSPrefix       = "AliDNS: "
+)
 
-type aliDNSConf struct {
-	AccessKeyId     string    `json:"accesskey_id"`
-	AccessKeySecret string    `json:"accesskey_secret"`
-	Domain          string    `json:"domain"`
-	SubDomain       subdomain `json:"sub_domain"`
-	RecordId        string    `json:"-"`
+type AliDNS struct {
+	AccessKeyId     string           `json:"access_key_id"`
+	AccessKeySecret string           `json:"access_key_secret"`
+	Domain          string           `json:"domain"`
+	SubDomain       common.Subdomain `json:"sub_domain"`
 }
 
-func (adc *aliDNSConf) InitConf() (msg string, err error) {
-	*adc = aliDNSConf{}
-	adc.AccessKeyId = "在 https://ram.console.aliyun.com/users 获取"
-	adc.AccessKeySecret = adc.AccessKeyId
-	adc.Domain = "example.com"
-	adc.SubDomain.A = "A记录子域名"
-	adc.SubDomain.AAAA = "AAAA记录子域名"
-	err = common.MarshalAndSave(adc, ConfDirectoryName+"/"+AliDNSConfFileName)
-	msg = "初始化 " + ConfDirectoryName + "/" + AliDNSConfFileName
-	return
+func (ad *AliDNS) InitConf() (msg string, err error) {
+	*ad = AliDNS{
+		AccessKeyId: "在 https://ram.console.aliyun.com/users 获取",
+		Domain:      "example.com",
+		SubDomain: common.Subdomain{
+			A:    "A记录子域名",
+			AAAA: "AAAA记录子域名",
+		},
+	}
+	ad.AccessKeySecret = ad.AccessKeyId
+
+	return "初始化 " + ConfDir + "/" + AliDNSConfFilename,
+		common.MarshalAndSave(ad, ConfDir+"/"+AliDNSConfFilename)
 }
 
-func (adc *aliDNSConf) LoadConf() (err error) {
-	err = common.LoadAndUnmarshal(ConfDirectoryName+"/"+AliDNSConfFileName, &adc)
-	if err != nil {
+func (ad *AliDNS) LoadConf() (err error) {
+	if err = common.LoadAndUnmarshal(ConfDir+"/"+AliDNSConfFilename, &ad); err != nil {
 		return
 	}
-	if adc.AccessKeyId == "" || adc.AccessKeySecret == "" || adc.Domain == "" || (adc.SubDomain.A == "" && adc.SubDomain.AAAA == "") {
-		err = errors.New("请打开配置文件 " + ConfDirectoryName + "/" + AliDNSConfFileName + " 检查你的 accesskey_id, accesskey_secret, domain, sub_domain 并重新启动")
+
+	if ad.AccessKeyId == "" || ad.AccessKeySecret == "" || ad.Domain == "" || (ad.SubDomain.A == "" && ad.SubDomain.AAAA == "") {
+		return errors.New("请打开配置文件 " + ConfDir + "/" + AliDNSConfFilename + " 检查你的 access_key_id, access_key_secret, domain, sub_domain 并重新启动")
 	}
 	return
 }
 
-func (adc aliDNSConf) Run(enabled enable, ipv4, ipv6 string) (msg []string, errs []error) {
-	if enabled.IPv4 && adc.SubDomain.A != "" {
+func (ad *AliDNS) Run(enabled common.Enable, ipv4, ipv6 string) (msg []string, errs []error) {
+	if ipv4 != "" && enabled.IPv4 && ad.SubDomain.A != "" {
 		// 获取解析记录
-		recordIP, err := adc.getParseRecord(adc.SubDomain.A, "A")
+		recordId, recordIP, err := ad.getParseRecord(ad.SubDomain.A, "A")
 		if err != nil {
 			errs = append(errs, err)
 		} else if recordIP != ipv4 {
 			// 更新解析记录
-			err = adc.updateParseRecord(ipv4, "A", adc.SubDomain.A)
-			if err != nil {
+			if err = ad.updateParseRecord(ipv4, recordId, "A", ad.SubDomain.A); err != nil {
 				errs = append(errs, err)
 			} else {
-				msg = append(msg, "AliDNS: "+adc.SubDomain.A+"."+adc.Domain+" 已更新解析记录 "+ipv4)
+				msg = append(msg, aliDNSPrefix+ad.SubDomain.A+"."+ad.Domain+" 已更新解析记录 "+ipv4)
 			}
 		}
 	}
-	if enabled.IPv6 && adc.SubDomain.AAAA != "" {
+	if ipv6 != "" && enabled.IPv6 && ad.SubDomain.AAAA != "" {
 		// 获取解析记录
-		recordIP, err := adc.getParseRecord(adc.SubDomain.AAAA, "AAAA")
+		recordId, recordIP, err := ad.getParseRecord(ad.SubDomain.AAAA, "AAAA")
 		if err != nil {
 			errs = append(errs, err)
 		} else if recordIP != ipv6 {
 			// 更新解析记录
-			err = adc.updateParseRecord(ipv6, "AAAA", adc.SubDomain.AAAA)
-			if err != nil {
+			if err = ad.updateParseRecord(ipv6, recordId, "AAAA", ad.SubDomain.AAAA); err != nil {
 				errs = append(errs, err)
 			} else {
-				msg = append(msg, "AliDNS: "+adc.SubDomain.AAAA+"."+adc.Domain+" 已更新解析记录 "+ipv6)
+				msg = append(msg, aliDNSPrefix+ad.SubDomain.AAAA+"."+ad.Domain+" 已更新解析记录 "+ipv6)
 			}
 		}
 	}
 	return
 }
 
-func (adc *aliDNSConf) getParseRecord(subDomain, recordType string) (recordIP string, err error) {
-	client, err := alidns.NewClientWithAccessKey("cn-hangzhou", adc.AccessKeyId, adc.AccessKeySecret)
+func (ad *AliDNS) getParseRecord(subDomain, recordType string) (recordId, recordIP string, err error) {
+	dnsClient, err := alidns.NewClientWithAccessKey("cn-hangzhou", ad.AccessKeyId, ad.AccessKeySecret)
 	if err != nil {
 		return
 	}
 
 	request := alidns.CreateDescribeDomainRecordsRequest()
 	request.Scheme = "https"
+	request.DomainName = ad.Domain
 
-	request.DomainName = adc.Domain
-
-	response, err := client.DescribeDomainRecords(request)
+	response, err := dnsClient.DescribeDomainRecords(request)
 	if err != nil {
 		return
 	}
 
 	for i := range response.DomainRecords.Record {
-		if response.DomainRecords.Record[i].RR == subDomain {
-			adc.RecordId = response.DomainRecords.Record[i].RecordId
+		if response.DomainRecords.Record[i].RR == subDomain &&
+			response.DomainRecords.Record[i].Type == recordType {
+			recordId = response.DomainRecords.Record[i].RecordId
 			recordIP = response.DomainRecords.Record[i].Value
-			if response.DomainRecords.Record[i].Type == recordType {
-				break
-			}
+			break
 		}
 	}
-	if adc.RecordId == "" || recordIP == "" {
-		err = errors.New("AliDNS: " + subDomain + "." + adc.Domain + " 解析记录不存在")
+
+	if recordId == "" || recordIP == "" {
+		err = errors.New(aliDNSPrefix + subDomain + "." + ad.Domain + " 的 " + recordType + " 解析记录不存在")
 	}
 	return
 }
 
-func (adc aliDNSConf) updateParseRecord(ipAddr, recordType, subDomain string) (err error) {
-	client, err := alidns.NewClientWithAccessKey("cn-hangzhou", adc.AccessKeyId, adc.AccessKeySecret)
+func (ad *AliDNS) updateParseRecord(ipAddr, recordId, recordType, subDomain string) (err error) {
+	dnsClient, err := alidns.NewClientWithAccessKey("cn-hangzhou", ad.AccessKeyId, ad.AccessKeySecret)
 	if err != nil {
 		return
 	}
 
 	request := alidns.CreateUpdateDomainRecordRequest()
 	request.Scheme = "https"
-
-	request.RecordId = adc.RecordId
+	request.RecordId = recordId
 	request.RR = subDomain
 	request.Type = recordType
 	request.Value = ipAddr
 
-	_, err = client.UpdateDomainRecord(request)
-	if err != nil {
-		return
-	}
+	_, err = dnsClient.UpdateDomainRecord(request)
 	return
 }
